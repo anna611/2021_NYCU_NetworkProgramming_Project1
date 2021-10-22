@@ -13,8 +13,9 @@
 using namespace std;
 typedef struct{
 	int fd[2];
-	int index;
+	int index = -1;
 }pipe_data;
+vector<pipe_data> record_n;
 void handle_child(int signo) {
         /* Declare function as [static] to purge the hidden [this] pointer
  *          * C library does not know what the heck is this pointer.*/
@@ -65,14 +66,26 @@ vector<string> parse(string& s){	//split commands with pipe
 int operation(vector<string> s){
 	char *commands[256];
 	int redirectout = 0;
+	int number_pipe = 0;
+	int error_pipe = 0;
+	char buf[10240];
+	vector<int> num;
+	size_t pos;
+	string deli = "|";
+	string deli2 = "!";
 	vector<pipe_data> record;
 	pipe_data p;
 	for(int i = 0; i < s.size();++i){
 		if(s.size() > 1 && i != s.size()-1){		//create pipe
 			if(pipe(p.fd) < 0)
 				cout << "pipe create error"<<endl;
-			p.index = i;
 			record.push_back(p);
+		}
+		if((pos = s[i].find(deli)) != string::npos || (pos = s[i].find(deli2)) != string::npos ){
+			if(pipe(p.fd) < 0)
+				cout << "pipe create error"<<endl;
+			p.index = stoi(s[i].substr(pos+1));
+			record_n.push_back(p);	
 		}
 		vector<string> tmp = spilt_input(s[i]);
 		signal(SIGCHLD,handle_child);
@@ -85,6 +98,13 @@ int operation(vector<string> s){
 				close(record[i-1].fd[0]);
 				close(record[i-1].fd[1]);
 			}
+			for(int i = 0; i < record_n.size(); ++i){
+				if(record_n[i].index == 0){
+					close(record_n[i].fd[0]);
+					close(record_n[i].fd[1]);
+					record_n[i].index = -1;
+				}
+			}
 			waitpid(c_pid, nullptr, 0);
 		} else {	//child process
 			for(int i = 0;i < tmp.size();++i){
@@ -92,13 +112,23 @@ int operation(vector<string> s){
 					redirection(tmp[i+1]);
 					redirectout = 1;
 				}
+				else if(pos = tmp[i].find(deli) != string::npos){
+					number_pipe = 1;	
+				}
+				else if(pos = tmp[i].find(deli2) != string::npos){
+                                        number_pipe = 1;
+					error_pipe = 1;
+                                }	
 				else{
-					if(!redirectout)
+					if(!redirectout){
 						commands[i] = const_cast<char*>(tmp[i].c_str());
+					}
 				}
 			}
 			if(redirectout)
 				commands[tmp.size()-2] = NULL;
+			else if(number_pipe)
+				commands[tmp.size()-1] = NULL;
 			else
 				commands[tmp.size()] = NULL;
 			if(s.size() > 1){		//need to pipe
@@ -114,6 +144,33 @@ int operation(vector<string> s){
 				}
 			
 			}
+			if(number_pipe == 1){	//number pipe
+				int count = record_n.size() - 1;
+				dup2(record_n[count].fd[1],STDOUT_FILENO);
+                                if(error_pipe)
+					dup2(record_n[count].fd[1],STDERR_FILENO);
+				close(record_n[count].fd[1]);
+			}
+			if(i == 0){
+				for(int j = 0;j<record_n.size();++j){
+					if(record_n[j].index == 0){
+						num.push_back(j);
+					}
+				}
+				if(!num.empty()){
+					dup2(record_n[num[0]].fd[0],STDIN_FILENO);
+					for(int j = 1;j < num.size(); ++j){
+						size_t nread = read(record_n[num[j]].fd[0],buf,10240);
+						size_t nwrite = write(record_n[num[j-1]].fd[1],buf,nread);
+					}		
+
+				}
+				num.erase(num.begin(),num.end());
+			}
+			for(int j = 0;j < record_n.size(); ++j){
+                                        close(record_n[j].fd[0]);
+                                        close(record_n[j].fd[1]);
+                                }
 			execvp(commands[0],commands);
 			cerr << "Unknown command: [" << commands[0] << "]." << endl;
 			exit(EXIT_SUCCESS);
@@ -128,17 +185,33 @@ int main(){
 	while(getline(cin,str)){	
 		vector<string> results = spilt_input(str);
 		vector<string> cmds = parse(str);
-		if(results[0] == "printenv"){
-			printenv(results[1]);
-		}
-		else if(results[0] == "setenv"){
-			setenv(results[1].c_str(),results[2].c_str(),1);	
-		}
-		else if(results[0] == "exit" || results[0] == "EOF" ){
-			exit(0);	
-		}
-		else{
-			operation(cmds);			
+		if(!results.empty()){
+			if(results[0] == "printenv"){
+				printenv(results[1]);
+				for(int i = 0;i < record_n.size();++i){
+					if(record_n[i].index > 0 )
+						record_n[i].index--;
+				}
+			}
+			else if(results[0] == "setenv"){
+				setenv(results[1].c_str(),results[2].c_str(),1);	
+				for(int i = 0;i < record_n.size();++i){
+					if(record_n[i].index > 0 )
+						record_n[i].index--;
+				}
+
+			}
+			else if(results[0] == "exit" || results[0] == "EOF" ){
+				exit(0);	
+			}
+			else {
+				operation(cmds);	
+				for(int i = 0;i < record_n.size();++i){
+					if(record_n[i].index > 0 )
+						record_n[i].index--;
+				}
+
+			}
 		}		
 		cout << "% ";
 	}
