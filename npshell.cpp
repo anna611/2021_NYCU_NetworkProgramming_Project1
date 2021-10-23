@@ -17,12 +17,12 @@ typedef struct{
 }pipe_data;
 vector<pipe_data> record_n;
 void handle_child(int signo) {
-        /* Declare function as [static] to purge the hidden [this] pointer
- *          * C library does not know what the heck is this pointer.*/
-        int status;
-        while (waitpid(-1, &status, WNOHANG) > 0) {
+	/* Declare function as [static] to purge the hidden [this] pointer
+	 *          * C library does not know what the heck is this pointer.*/
+	int status;
+	while (waitpid(-1, &status, WNOHANG) > 0) {
 
-        }
+	}
 }
 vector<string> spilt_input(const string& s){	//spilt commands with space
 	istringstream stream(s);
@@ -37,24 +37,25 @@ int printenv(string& s){
 	char* char_arr;
 	char_arr = &s[0];
 	if(const char* env_p = getenv(char_arr))
-        	cout  << env_p <<endl;
+		cout  << env_p <<endl;
 	return 0;	
 }
 void redirection(string& s){	
 	int out = open(s.c_str(),O_WRONLY|O_CREAT| O_TRUNC, S_IRUSR | S_IWUSR);
 	if (out == -1){
-                cout << "File open error." << endl;
-                return;
-            }
-	
-        dup2(out, STDOUT_FILENO);
+		cout << "File open error." << endl;
+		return;
+	}
+
+	dup2(out, STDOUT_FILENO);
 	return;
 }
 vector<string> parse(string& s){	//split commands with pipe
 	vector<string> res;
 	size_t pos = 0;
 	string token;
-	while ((pos = s.find(" | ")) != string::npos) {
+	string deli = " | ";
+	while ((pos = s.find(deli)) != string::npos) {
 		token = s.substr(0, pos);
 		res.push_back(token);
 		s.erase(0, pos + 3);
@@ -76,12 +77,16 @@ int operation(vector<string> s){
 	vector<pipe_data> record;
 	pipe_data p;
 	for(int i = 0; i < s.size();++i){
+		bool x = false;
+		bool y = false;
+		if(pos = s[i].find(deli) != string::npos) x = true;
+		if(pos = s[i].find(deli2) != string::npos) y = true;
 		if(s.size() > 1 && i != s.size()-1){		//create pipe
 			if(pipe(p.fd) < 0)
 				cout << "pipe create error"<<endl;
 			record.push_back(p);
 		}
-		if((pos = s[i].find(deli)) != string::npos || (pos = s[i].find(deli2)) != string::npos ){
+		if((pos = s[i].find(deli)) != string::npos || (pos = s[i].find(deli2)) != string::npos ){	//create number pipe
 			if(pipe(p.fd) < 0)
 				cout << "pipe create error"<<endl;
 			p.index = stoi(s[i].substr(pos+1));
@@ -90,38 +95,41 @@ int operation(vector<string> s){
 		vector<string> tmp = spilt_input(s[i]);
 		signal(SIGCHLD,handle_child);
 		pid_t c_pid = fork();
-		if (c_pid == -1) {
-			perror("fork");
-			exit(EXIT_FAILURE);
-		} else if (c_pid > 0) {		//parent process
+		while(c_pid < 0){	//for fork error
+			sleep(1000);
+			c_pid = fork();
+		}
+		if (c_pid > 0) {		//parent process
 			if(i != 0){
 				close(record[i-1].fd[0]);
 				close(record[i-1].fd[1]);
 			}
-			for(int i = 0; i < record_n.size(); ++i){
-				if(record_n[i].index == 0){
-					close(record_n[i].fd[0]);
-					close(record_n[i].fd[1]);
-					record_n[i].index = -1;
+			for(int j = 0; j < record_n.size(); ++j){
+				if(record_n[j].index == 0){
+					close(record_n[j].fd[0]);
+					close(record_n[j].fd[1]);
+					record_n[j].index = -1;
 				}
 			}
-			waitpid(c_pid, nullptr, 0);
-		} else {	//child process
-			for(int i = 0;i < tmp.size();++i){
-				if(tmp[i] == ">"){
-					redirection(tmp[i+1]);
+			if(i == s.size()-1 && !(x || y))
+				waitpid(c_pid,nullptr,0);	
+
+		} else if(c_pid == 0){	//child process
+			for(int j = 0;j < tmp.size();++j){	//process command 
+				if(tmp[j] == ">"){
+					redirection(tmp[j+1]);
 					redirectout = 1;
 				}
-				else if(pos = tmp[i].find(deli) != string::npos){
+				else if(pos = tmp[j].find(deli) != string::npos){
 					number_pipe = 1;	
 				}
-				else if(pos = tmp[i].find(deli2) != string::npos){
-                                        number_pipe = 1;
+				else if(pos = tmp[j].find(deli2) != string::npos){
+					number_pipe = 1;
 					error_pipe = 1;
-                                }	
+				}	
 				else{
 					if(!redirectout){
-						commands[i] = const_cast<char*>(tmp[i].c_str());
+						commands[j] = const_cast<char*>(tmp[j].c_str());
 					}
 				}
 			}
@@ -136,18 +144,14 @@ int operation(vector<string> s){
 					dup2(record[i-1].fd[0], STDIN_FILENO);
 				}
 				if(i != s.size()-1){
-                                        dup2(record[i].fd[1], STDOUT_FILENO);	
+					dup2(record[i].fd[1], STDOUT_FILENO);	
 				}
-				for(int j = 0;j < record.size(); ++j){
-					close(record[j].fd[0]);
-					close(record[j].fd[1]);
-				}
-			
+
 			}
-			if(number_pipe == 1){	//number pipe
+			if(number_pipe == 1 ){	//number pipe
 				int count = record_n.size() - 1;
 				dup2(record_n[count].fd[1],STDOUT_FILENO);
-                                if(error_pipe)
+				if(error_pipe)
 					dup2(record_n[count].fd[1],STDERR_FILENO);
 				close(record_n[count].fd[1]);
 			}
@@ -162,15 +166,19 @@ int operation(vector<string> s){
 					for(int j = 1;j < num.size(); ++j){
 						size_t nread = read(record_n[num[j]].fd[0],buf,10240);
 						size_t nwrite = write(record_n[num[j-1]].fd[1],buf,nread);
-					}		
-
+					}
 				}
 				num.erase(num.begin(),num.end());
+
 			}
-			for(int j = 0;j < record_n.size(); ++j){
-                                        close(record_n[j].fd[0]);
-                                        close(record_n[j].fd[1]);
-                                }
+			for(int j = 0;j < record_n.size();++j){
+				close(record_n[j].fd[0]);
+				close(record_n[j].fd[1]);
+			}
+			for(int j = 0;j < record.size(); ++j){
+				close(record[j].fd[0]);
+				close(record[j].fd[1]);
+			}
 			execvp(commands[0],commands);
 			cerr << "Unknown command: [" << commands[0] << "]." << endl;
 			exit(EXIT_SUCCESS);
