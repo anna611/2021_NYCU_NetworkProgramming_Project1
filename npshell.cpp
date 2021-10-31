@@ -93,13 +93,6 @@ int operation(vector<string> s){
 			record_n.push_back(p);	
 		}
 		vector<string> tmp = spilt_input(s[i]);
-		int head=0;
-		for(int j = 0;j<record_n.size();++j){
-			if(record_n[j].index == 0){
-				head = j;
-				break;
-			}
-		}
 		if(i == 0){
 			for(int j = 0;j<record_n.size();++j){
 					if(record_n[j].index == 0){
