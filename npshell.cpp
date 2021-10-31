@@ -93,6 +93,21 @@ int operation(vector<string> s){
 			record_n.push_back(p);	
 		}
 		vector<string> tmp = spilt_input(s[i]);
+		int head=0;
+		for(int j = 0;j<record_n.size();++j){
+			if(record_n[j].index == 0){
+				head = j;
+				break;
+			}
+		}
+		if(i == 0){
+			for(int j = 0;j<record_n.size();++j){
+					if(record_n[j].index == 0){
+						num.push_back(j);
+						record_n[j].index = -1;
+					}
+				}
+		}
 		signal(SIGCHLD,handle_child);
 		pid_t c_pid = fork();
 		while(c_pid < 0){	//for fork error
@@ -104,13 +119,22 @@ int operation(vector<string> s){
 				close(record[i-1].fd[0]);
 				close(record[i-1].fd[1]);
 			}
-			for(int j = 0; j < record_n.size(); ++j){
-				if(record_n[j].index == 0){
-					close(record_n[j].fd[0]);
-					close(record_n[j].fd[1]);
-					record_n[j].index = -1;
+			if(i == 0){
+				if(!num.empty()&& num.size() >1){
+					for(int j = num.size()-1;j >= 0; --j){
+						size_t nread = read(record_n[num[j]].fd[0],buf,10240);
+						size_t nwrite = write(record_n[num[j-1]].fd[1],buf,nread);
+					}
 				}
+				num.erase(num.begin(),num.end());
 			}
+			for(int j = 0;j<record_n.size();++j){
+					if(record_n[j].index == -1){
+						close(record_n[j].fd[0]);
+						close(record_n[j].fd[1]);
+						record_n.erase(record_n.begin()+j);
+					}
+				}
 			if(i == s.size()-1 && !(x || y))
 				waitpid(c_pid,nullptr,0);	
 
@@ -149,27 +173,16 @@ int operation(vector<string> s){
 
 			}
 			if(number_pipe == 1 ){	//number pipe
-				int count = record_n.size() - 1;
+				int count = record_n.size()-1;
 				dup2(record_n[count].fd[1],STDOUT_FILENO);
 				if(error_pipe)
 					dup2(record_n[count].fd[1],STDERR_FILENO);
 				close(record_n[count].fd[1]);
 			}
 			if(i == 0){
-				for(int j = 0;j<record_n.size();++j){
-					if(record_n[j].index == 0){
-						num.push_back(j);
-					}
-				}
 				if(!num.empty()){
 					dup2(record_n[num[0]].fd[0],STDIN_FILENO);
-					for(int j = 1;j < num.size(); ++j){
-						size_t nread = read(record_n[num[j]].fd[0],buf,10240);
-						size_t nwrite = write(record_n[num[j-1]].fd[1],buf,nread);
-					}
 				}
-				num.erase(num.begin(),num.end());
-
 			}
 			for(int j = 0;j < record_n.size();++j){
 				close(record_n[j].fd[0]);
